@@ -183,7 +183,11 @@ def get_items (items_, args_) :
         item['title']  = story['title'][:256].encode('ascii','replace')
         item['author'] = story['by'][:256]
         item['rank']   = items_[0] + offset
-        item['points'] = story['score']
+
+        try :
+            item['points'] = story['score']
+        except KeyError :
+            item['points'] = 0
 
         try :
             item['uri'] = story['url']
