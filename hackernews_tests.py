@@ -103,6 +103,33 @@ class tests (unittest.TestCase) :
         for x in xrange (0, 5, 1) :
             self.assertEqual (x+1, hn.urls[x].json()["id"])
 
+    def test_multi_perform_3 (self) :
+        hn  = HNews()
+
+        #
+        # force multiple iterations over the read loop
+        #
+        hn.max_active = 2
+
+        for x in xrange (1, 6, 1) : hn.item (x)
+
+        self.assertEqual (5, len (hn.urls))
+        for x in xrange (0, 5, 1) :
+            with self.assertRaises (AttributeError) :
+                b = hn.urls[x].buf
+
+        hn.perform()
+
+        #
+        # Pretend we failed one of the reads
+        #
+        hn.urls[2].buf = None
+
+        self.assertEqual (5, len (hn.urls))
+
+        self.assertEqual (None, hn.urls[2].json())
+        self.assertEqual ("Error", hn.urls[2].rtype())
+
 #-------------------------------------------------------------------------------
 
 if __name__ == "__main__" :

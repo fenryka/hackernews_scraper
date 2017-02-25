@@ -30,13 +30,12 @@ class HNewsResult (object) :
         try :
             return json.loads (self.buf.getvalue())
         except :
-            print "ERROR"
-            print self.buf.getvalue()
+            return None
 
     def rtype (self) :
         try :
             return self.json()['type']
-        except ValueError :
+        except (ValueError, TypeError) :
             return "Error"
 
 #-------------------------------------------------------------------------------
@@ -102,6 +101,7 @@ class HNews (object) :
                 self.mc.remove_handle (b[0])
                 self.urls[handles[b[0]]].curl.close()
                 self.urls[handles[b[0]]].error = b[1]
+                self.urls[handles[b[0]]].buf   = None
                 handles.pop (g)
 
             offset += idx
@@ -130,7 +130,7 @@ def parseargs() :
     ap.add_argument (
         '--posts', '-p',
         type    = int,
-        default = 10,
+        default = 100,
         action  = posts_action,
         help    = 'How many stories to grab [between 1 and 100]')
 
