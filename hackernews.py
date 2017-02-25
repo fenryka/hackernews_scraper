@@ -14,7 +14,7 @@ from StringIO import StringIO
 
 class HNewsResult (object) :
     def __init__ (self, url_) :
-        self.url  = url_
+        self.url = url_
 
     def activate (self) :
         self.buf  = StringIO()
@@ -26,6 +26,12 @@ class HNewsResult (object) :
         self.curl.setopt(pycurl.TIMEOUT, 300)
         self.curl.setopt(pycurl.NOSIGNAL, 1)
 
+    def errors (self) :
+        try :
+            return self.error
+        except AttributeError :
+            return None
+
     def json (self) :
         try :
             return json.loads (self.buf.getvalue())
@@ -36,7 +42,7 @@ class HNewsResult (object) :
         try :
             return self.json()['type']
         except (ValueError, TypeError) :
-            return "Error"
+            return None
 
 #-------------------------------------------------------------------------------
 
@@ -100,9 +106,9 @@ class HNews (object) :
             for b in bad :
                 self.mc.remove_handle (b[0])
                 self.urls[handles[b[0]]].curl.close()
-                self.urls[handles[b[0]]].error = b[1]
+                self.urls[handles[b[0]]].error = b[2]
                 self.urls[handles[b[0]]].buf   = None
-                handles.pop (g)
+                handles.pop (b[0])
 
             offset += idx
             idx = 0
@@ -232,6 +238,10 @@ def main() :
     # As above, limit the actual list of posts we want to fetch to the
     # number we've been told to
     #
+    if result.errors() :
+        print "Error: %s" % result.errors()
+        sys.exit (1)
+
     top = result.json()[:args.posts]
 
     #

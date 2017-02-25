@@ -128,7 +128,17 @@ class tests (unittest.TestCase) :
         self.assertEqual (5, len (hn.urls))
 
         self.assertEqual (None, hn.urls[2].json())
-        self.assertEqual ("Error", hn.urls[2].rtype())
+        self.assertEqual (None, hn.urls[2].rtype())
+
+    def test_errors (self) :
+        hnr = HNewsResult ("https://test.com/url")
+
+        self.assertFalse (hnr.errors())
+
+        hnr.error = "It went bad"
+
+        self.assertTrue (hnr.errors())
+        self.assertEqual (hnr.errors(), "It went bad")
 
 #-------------------------------------------------------------------------------
 
