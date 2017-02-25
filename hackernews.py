@@ -22,16 +22,69 @@ class HNews (object) :
     def __del__ (self) :
         self.curl.close()
 
-    def _get (self, what_) :
-        buf = StringIO()
+    def _set (self, what_) :
+        self.buf = StringIO()
         self.curl.setopt (self.curl.URL, '%s/%s/%s.json' % (self.uri, self.version, what_))
-        self.curl.setopt (self.curl.WRITEDATA, buf)
+        self.curl.setopt (self.curl.WRITEDATA, self.buf)
+        self.curl.setopt(pycurl.CONNECTTIMEOUT, 30)
+        self.curl.setopt(pycurl.TIMEOUT, 300)
+        self.curl.setopt(pycurl.NOSIGNAL, 1)
+
+    def _get (self) :
         self.curl.perform()
+        return json.loads (self.buf.getvalue())
 
-        return json.loads (buf.getvalue())
+    def topstories (self, get_ = True) :
+        self._set ('topstories')
+        return self._get() if get_ else None
 
-    def topstories (self) : return self._get ('topstories')
-    def item (self, item_) : return self._get ('item/%s' % item_);
+    def item (self, item_, get_ = True) :
+        self._set ('item/%s' % item_);
+        return self._get() if get_ else None
+
+    def perform (self) :
+        return self._get()
+
+    def close (self) :
+        self.curl.close()
+
+    def json (self) :
+        return json.loads (self.buf.getvalue())
+
+#-------------------------------------------------------------------------------
+
+class MultiHNews (object) :
+    def __init__ (self) :
+        self.mcurls  = pycurl.CurlMulti()
+        self.curls   = []
+        self.timeout = 1.0
+
+    def __del__ (self) :
+        print "Tear down"
+        for curl in self.curls :
+            self.mcurls.remove_handle (curl.curl)
+            curl.close()
+
+        self.mcurls.close()
+
+    def item (self, item_) :
+        self.curls.append (HNews())
+        self.curls[-1].item (item_, False)
+        self.mcurls.add_handle (self.curls[-1].curl)
+
+    def perform (self) :
+        while True :
+            while True :
+                ret, num_handles = self.mcurls.perform()
+                if ret != pycurl.E_CALL_MULTI_PERFORM : break
+
+            if num_handles == 0 : break;
+
+            v = self.mcurls.select (self.timeout)
+            if v == -1 : continue
+
+    def __iter__ (self) :
+        return self.curls.__iter__()
 
 #-------------------------------------------------------------------------------
 
@@ -59,6 +112,21 @@ def parseargs() :
         default = 10,
         help    = "How large a threadpool to use for issue fetch")
 
+    ap.add_argument (
+        '--threads', '-T',
+        action = 'store_true',
+        help   = "If set each subset of results will be fetched in a seperate thread")
+
+    #
+    # Set weather we treat all child elements of a story object as a 
+    # comment or weather we check each one to be sure
+    #
+    ap.add_argument (
+        '--all_kids_are_comments', '-k',
+        action = 'store_true',
+        help   = "If set, will treat every child ofa story as a comment")
+
+
     return ap.parse_args()
 
 #-------------------------------------------------------------------------------
@@ -83,37 +151,46 @@ def parseargs() :
 #   ranks <- { from offset }
 #   comments <- { calc from kids }
 #
-set(['author', 'title', 'uri', 'rank', 'points', 'comments'])
 def get_items (items_, args_) :
-    print "get_items %s" % str(items_)
     def kid_is_comment (child) :
         item = HNews().item (child)
         return 1 if item['type'] == "comment" else 0
 
-    rtn        = []
-    hnews      = HNews()
-    threadpool = Pool (args_.tpool)
+    rtn = []
+    mhn = MultiHNews()
 
-    offset = 1;
-    for item_key in items_[1] :
-        story            = hnews.item (item_key)
-        item             = { }
-        item['title']    = story['title']
-        item['uri']      = story['url']
-        item['author']   = story['by']
-        item['rank']     = items_[0] + offset
-        item['points']   = story['score']
+    #
+    # load the list of items into our multi curl obj
+    #
+    for item_key in items_[1] : mhn.item (item_key)
+
+    mhn.perform()
+
+    offset = 0;
+    for data in mhn :
+        offset += 1
+        story = data.json()
+        item  = { }
+        try :
+            item['title']  = story['title']
+            item['uri']    = story['url']
+            item['author'] = story['by']
+            item['rank']   = items_[0] + offset
+            item['points'] = story['score']
+        except KeyError as e:
+            raise e
 
         try :
-#            item['comments'] = threadpool.map (get_comments, story['kids']).count (1)
-
+            if args_.all_kids_are_comments :
+                item['comments'] = len (story['kids'])
+            else :
+                kids = MultiHNews()
+                for kid in story['kids'] : kids.item (kid)
+                kids.perform()
+                item['comments'] = [ 1 if x.json()['type'] == "comment" else 0 \
+                    for x in kids ].count (1)
+        except KeyError as e :
             item['comments'] = 0
-            for kid in story['kids'] :
-                if kid_is_comment (kid) : item['comments'] += 1
-        except KeyError :
-            item['comments'] = 0
-
-        offset += 1
 
         rtn.append (item)
 
@@ -136,13 +213,15 @@ def main() :
     # the offset into tthe origional list with the sublist itself
     #
     sublists   = [(i, top[i:i + lsize]) for i in xrange (0, len (top), lsize)]
-    threadpool = Pool (args.tpool)
     results    = []
 
-#    results.extend (threadpool.map (lambda p : get_items (p, args), sublists));
-    for l in sublists : results.extend (get_items (l, args))
-
-    print json.dumps (list (itertools.chain.from_iterable (results)), indent=3)
+    if args.threads :
+        threadpool = Pool (args.tpool)
+        results.extend (threadpool.map (lambda p : get_items (p, args), sublists));
+#        print json.dumps (list (itertools.chain.from_iterable (results)), indent=3)
+    else :
+        for l in sublists : results.extend (get_items (l, args))
+#        print json.dumps (results, indent=3)
 
 #-------------------------------------------------------------------------------
 
