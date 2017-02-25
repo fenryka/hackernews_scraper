@@ -80,6 +80,13 @@ class HNews (object) :
             while idx < self.max_active and idx + offset < len (self.urls) :
                 self.urls[offset + idx].activate()
                 self.mc.add_handle (self.urls[offset + idx].curl)
+
+                #
+                # Keep a mapping between our meta result object and 
+                # the curl object we put into the multicurl obj
+                # so we can deal with errors and assign them to
+                # the proper objects
+                #
                 handles[self.urls[offset + idx].curl] = idx + offset
 
                 idx+=1
