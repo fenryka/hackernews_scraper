@@ -4,7 +4,14 @@
 
 import unittest
 
-from hackernews import HNews, HNewsResult
+from hackernews import HNews, HNewsResult, item_list_to_results
+
+#-------------------------------------------------------------------------------
+
+class fake_args (object) :
+    nlists                    = 1
+    posts                     = 1
+    all_kids_are_not_comments = False
 
 #-------------------------------------------------------------------------------
 
@@ -79,6 +86,7 @@ class tests (unittest.TestCase) :
         self.assertEqual (5, len (hn.urls))
 
         for x in xrange (0, 5, 1) :
+            self.assertFalse (hn.urls[x].errors())
             self.assertEqual (x+1, hn.urls[x].json()["id"])
 
     def test_multi_perform_2 (self) :
@@ -139,6 +147,43 @@ class tests (unittest.TestCase) :
 
         self.assertTrue (hnr.errors())
         self.assertEqual (hnr.errors(), "It went bad")
+
+    def test_item_fetch (self) :
+        #
+        # build a fake item list
+        #
+        top = [x for x in xrange (1, 6, 1)]
+
+        #
+        # and a fake args list
+        #
+        args = fake_args()
+        args.posts = 5
+
+        results = item_list_to_results (args, top)
+        self.assertEqual (5, len (results))
+
+        #
+        # Subdividing the lists should still render the same result
+        #
+        args.nlists = 3
+        results = item_list_to_results (args, top)
+        self.assertEqual (5, len (results))
+
+        #
+        # without changing the list length whouls throw
+        #
+        args.nlists = 1
+        args.posts  = 1
+        with self.assertRaises (ValueError) :
+            results = item_list_to_results (args, top)
+
+        #
+        # shrinking the list to match should again work
+        #
+        top = top[:1]
+        results = item_list_to_results (args, top)
+        self.assertEqual (1, len (results))
 
 #-------------------------------------------------------------------------------
 

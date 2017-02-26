@@ -73,8 +73,8 @@ class HNews (object) :
 
     def perform (self) :
         handles = { }
-        idx    = 0
-        offset = 0
+        idx     = 0
+        offset  = 0
 
         while idx + offset < len (self.urls) :
             while idx < self.max_active and idx + offset < len (self.urls) :
@@ -228,9 +228,35 @@ def get_items (items_, args_) :
 
 #-------------------------------------------------------------------------------
 
+def item_list_to_results (args_, top_results_) :
+    if len (top_results_) != args_.posts :
+        raise ValueError ("result list size must match post count")
+    #
+    # how big is each sub list going to be. we could be using sublists
+    # to partition off the calls we make
+    #
+    lsize = args_.nlists if args_.posts < args_.nlists else \
+        args_.posts / args_.nlists
+
+    #
+    # split the list into a set of sublists and then iterate over them
+    # to pull down the results. Default to one as the library should be able to
+    # handle pulling down lots of resuls in parallel but the VM I was testing
+    # on struggles (because it was tiny) and this became a good way of letting
+    # it actually complete without OOMing   
+    #
+    sublists   = [(i, top_results_[i:i + lsize]) for i in xrange (0, len (top_results_), lsize)]
+    results    = []
+
+    for l in sublists : results.extend (get_items (l, args_))
+
+    return results
+
+#-------------------------------------------------------------------------------
+
 def main() :
-    args   = parseargs()
-    hnews  = HNews()
+    args  = parseargs()
+    hnews = HNews()
 
     #
     # Firstly, just grab the list of the top 200 stories. There might be a
@@ -249,25 +275,9 @@ def main() :
         print "Error: %s" % result.errors()
         sys.exit (1)
 
-    top = result.json()[:args.posts]
+    top     = result.json()[:args.posts]
+    results = item_list_to_results (args, top)
 
-    #
-    # how big is each sub list going to be. we could be using sublists
-    # to partition off the calls we make
-    #
-    lsize = args.nlists if args.posts < args.nlists else args.posts / args.nlists
-
-    #
-    # split the list into a set of sublists and then iterate over them
-    # to pull down the results. Default to one as the library should be able to
-    # handle pulling down lots of resuls in parallel but the VM I was testing
-    # on struggles (because it was tiny) and this became a good way of letting
-    # it actually complete without OOMing   
-    #
-    sublists   = [(i, top[i:i + lsize]) for i in xrange (0, len (top), lsize)]
-    results    = []
-
-    for l in sublists : results.extend (get_items (l, args))
     if not args.silent :
         print json.dumps (results, indent = 3)
 
