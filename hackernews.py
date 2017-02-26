@@ -63,13 +63,12 @@ class HNewsResult (object) :
         if self.errors() :
             raise ValueError (self.errors())
 
-        try :
-            return json.loads (self.buf.getvalue())
-        except :
-            if self.errors() :
-                raise ValueError (self.errors())
-            else :
-                raise
+        #
+        # we've already tested for errors we tolerate, if this fails let the
+        # exception escape as we want to see how it's maanged to go worng in
+        # an unexpted way
+        #
+        return json.loads (self.buf.getvalue())
 
     def rtype (self) :
         try :
