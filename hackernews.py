@@ -31,22 +31,50 @@ class HNewsResult (object) :
         self.curl.setopt (pycurl.TIMEOUT, 300)
         self.curl.setopt (pycurl.NOSIGNAL, 1)
 
+    #
+    # We can error in one of two ways, either the request was a success
+    # but we got nothing back, i.e. we requested something stupid or the
+    # physcial request failed. In etiehr case we're goign to return the
+    # appropraite error string and let the caller deal with rasing an
+    # excpetion unless we're in a state we shouldn't be in in
+    #
     def errors (self) :
+        try :
+            if self.buf and self.buf.getvalue() == "null" :
+                return ("Url %s returned no result" % self.url)
+        except AttributeError :
+            #
+            # If we've not been called we won't have a buff so we don't 
+            # care one isn't set since any other state will be caught below
+            #
+            pass
+
         try :
             return self.error
         except AttributeError :
-            return None
+            #
+            # Finally if no error is set on the obejct there aren't any
+            # so we're all good to go
+            #
+            return False
+
 
     def json (self) :
+        if self.errors() :
+            raise ValueError (self.errors())
+
         try :
             return json.loads (self.buf.getvalue())
         except :
-            return None
+            if self.errors() :
+                raise ValueError (self.errors())
+            else :
+                raise
 
     def rtype (self) :
         try :
             return self.json()['type']
-        except (ValueError, TypeError) :
+        except (ValueError, TypeError, Exception) :
             return None
 
 #-------------------------------------------------------------------------------
@@ -247,8 +275,26 @@ def get_items (items_, args_) :
     offset = 0;
     for data in mhn :
         offset += 1
-        story = data.json()
         item  = { }
+
+        try :
+            story = data.json()
+        except ValueError as e:
+            #
+            # If we failed to read a url create a fake story that indicates
+            # this and continue since I think it's better to out put some results
+            # rather than exit and produce nothign
+            #
+            story = {
+                'title' : str (e),
+                'url'   : 'error',
+                'score' : '0',
+                'by'    : 'None',
+                'kids'  : [ ]
+            }
+        except Exception as e:
+            print "ERROR: %s" % str (e);
+            sys.exit (1)
 
         #
         # Requiremets were these two field should be limitied to 256 
@@ -351,10 +397,15 @@ def main() :
     # number we've been told to
     #
     if result.errors() :
-        print "Error: %s" % result.errors()
+        print "ERROR: %s" % result.errors()
         sys.exit (1)
 
-    top     = result.json()[:args.posts]
+    try :
+        top = result.json()[:args.posts]
+    except Exception as e :
+        print "ERROR: %s" % str (e)
+        sys.exit (1)
+
     results = item_list_to_results (args, top)
 
     if not args.silent :

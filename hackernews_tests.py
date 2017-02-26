@@ -61,8 +61,9 @@ class tests (unittest.TestCase) :
         hn.perform()
         item = res.json()
         self.assertTrue (isinstance (item, list))
+
         #
-        # API docs recon yo usohuld get up to 500 so...
+        # API docs recon you sohuld get up to 500 so...
         #
         self.assertTrue (len (item) <= 500)
 
@@ -135,7 +136,9 @@ class tests (unittest.TestCase) :
 
         self.assertEqual (5, len (hn.urls))
 
-        self.assertEqual (None, hn.urls[2].json())
+        with self.assertRaises (Exception) :
+            json = hn.urls[2].json()
+
         self.assertEqual (None, hn.urls[2].rtype())
 
     def test_errors (self) :
@@ -184,6 +187,49 @@ class tests (unittest.TestCase) :
         top = top[:1]
         results = item_list_to_results (args, top)
         self.assertEqual (1, len (results))
+
+
+    def test_zero_fetch (self) :
+        top        = []
+        args       = fake_args()
+        args.posts = 0
+
+        results = item_list_to_results (args, top)
+        self.assertEqual (0, len (results))
+
+
+    def test_error_result (self) :
+        hn  = HNews()
+        res = hn.item (1)
+        hn.perform()
+
+        res.error = "fake an error"
+        res.buf = None
+
+        with self.assertRaises (ValueError) :
+            item = res.json()
+
+        #
+        # build a fake item list
+        #
+        top = [x for x in xrange (1, 6, 1)]
+
+        #
+        # mark the middle element wit ha garbage id
+        #
+        top[2]     = "helloo"
+        args       = fake_args()
+        args.posts = 5
+
+        results    = item_list_to_results (args, top)
+        self.assertEqual (5, len (results))
+
+
+        self.assertEqual ('<INVALID>', results[2]['uri'])
+        self.assertEqual ('Url https://hacker-news.firebaseio.com/v0/item/helloo.json '
+            'returned no result', results[2]['title'])
+
+
 
 #-------------------------------------------------------------------------------
 
