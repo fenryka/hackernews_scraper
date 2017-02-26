@@ -18,13 +18,18 @@ class HNewsResult (object) :
 
     def activate (self) :
         self.buf  = StringIO()
+
+        #
+        # will deal with closing this once we've inished fetching
+        # weather that fetch passes or succeeds
+        #
         self.curl = pycurl.Curl()
 
         self.curl.setopt (self.curl.URL, self.url)
         self.curl.setopt (self.curl.WRITEDATA, self.buf)
-        self.curl.setopt(pycurl.CONNECTTIMEOUT, 30)
-        self.curl.setopt(pycurl.TIMEOUT, 300)
-        self.curl.setopt(pycurl.NOSIGNAL, 1)
+        self.curl.setopt (pycurl.CONNECTTIMEOUT, 30)
+        self.curl.setopt (pycurl.TIMEOUT, 300)
+        self.curl.setopt (pycurl.NOSIGNAL, 1)
 
     def errors (self) :
         try :
@@ -52,9 +57,23 @@ class HNews (object) :
         self.version    = 'v0'
         self.mc         = pycurl.CurlMulti()
         self.timeout    = 1.0
+
+        #
+        # The set of URLS to fetch
+        #
         self.urls       = [ ]
+
+        #
+        # How many concurrent requests we can fire off at any one time in
+        # parallel. Basically we make URL requests in batches of max_active
+        # so a list of 50 URLS would be fetched in two rounds
+        #
         self.max_active = 25
 
+    #
+    # Interface for adding url's to the queue we want to fetch when peform
+    # is called
+    #
     def _add_url (self, what_) :
         self.urls.append (
             HNewsResult ('%s/%s/%s.json' % (self.uri, self.version, what_)))
@@ -65,13 +84,24 @@ class HNews (object) :
         #
         return self.urls[-1]
 
+    #
+    # Synthesise the top 500 stories API url and add it to our list
+    #
     def topstories (self) : return self._add_url ('topstories')
+
+    #
+    # Sytheises a UTL to fetch info on object 'item' from the API
+    #
     def item (self, item) : return self._add_url ('item/%s' % item)
 
     def __del__ (self) :
         self.mc.close()
 
     def perform (self) :
+        #
+        # Just track which handles map to which elements in out URL
+        # list as we add them to the mcurl object
+        #
         handles = { }
         idx     = 0
         offset  = 0
@@ -95,6 +125,10 @@ class HNews (object) :
                 ret, num_handles = self.mc.perform()
                 if ret != pycurl.E_CALL_MULTI_PERFORM : break
 
+            #
+            # With the state machine kicked off wait for all requests to
+            # finish
+            #
             while num_handles :
                 v = self.mc.select (self.timeout)
                 if v == -1 : continue
@@ -110,6 +144,10 @@ class HNews (object) :
                 self.urls[handles[g]].curl.close()
                 handles.pop (g)
 
+            #
+            # unlike g above which is just the curl object b is a tuble of
+            # { curl object, erro code, error desc }
+            #
             for b in bad :
                 self.mc.remove_handle (b[0])
                 self.urls[handles[b[0]]].curl.close()
@@ -126,11 +164,11 @@ class HNews (object) :
 #-------------------------------------------------------------------------------
 
 def parseargs() :
-    ap = argparse.ArgumentParser (description = "Hacker News dl'er")
+    ap = argparse.ArgumentParser (description = "Hacker News downloader")
 
     #
-    # Custom value calidity checker for the number of posts argument
-    # since we exlicitly want that to be between 1 and 100
+    # Custom value validity checker for the number of posts argument
+    # since we explicitly want that to be between 1 and 100
     #
     class posts_action (argparse.Action) :
         def __call__ (self, parser, namespace, values, option_string = None) :
@@ -167,6 +205,7 @@ def parseargs() :
 
     #
     # Just for testing purpoes when you want to time how long things are taking
+    # and don't want i tp actually print out the sotry contents
     #
     ap.add_argument (
         '--silent', '-s',
@@ -177,6 +216,16 @@ def parseargs() :
 
 #-------------------------------------------------------------------------------
 
+#
+# Takes a list of id's and should return a list of records matching
+# each id in that list.
+#
+# item_ is a tuble where
+# item_[0] is the offset rank for the start of the list
+# item_[1] is a list of hackerrank story id's
+#
+# args_ is the command line parameter object
+#
 def get_items (items_, args_) :
     rtn = []
     mhn = HNews();
@@ -188,11 +237,23 @@ def get_items (items_, args_) :
 
     mhn.perform()
 
+    #
+    # loop count over the list to determine the ranking. We're assuming
+    # that as we were given the top N stories then that list is ordered
+    # with the top story being element zero. As we can be given a portion
+    # of that list to operate on this will be offset by our offset as 
+    # given to the func in items_[0]
+    #
     offset = 0;
     for data in mhn :
         offset += 1
         story = data.json()
         item  = { }
+
+        #
+        # Requiremets were these two field should be limitied to 256 
+        # characters
+        #
         item['title']  = story['title'][:256].encode('ascii','replace')
         item['author'] = story['by'][:256]
         item['rank']   = items_[0] + offset
@@ -202,6 +263,12 @@ def get_items (items_, args_) :
         except KeyError :
             item['points'] = 0
 
+        #
+        # It's unclear what we're supposed to do if a URL isn't valid
+        # given they'e coming from a 3rd party so I'm just going to
+        # replace it with some text that makes it clear that's what
+        # we've done
+        #
         try :
             item['uri'] = story['url']
             if not validators.url (item['uri']) :
@@ -209,6 +276,14 @@ def get_items (items_, args_) :
         except KeyError :
             item['uri'] = ""
 
+        #
+        # So, either we can assume all kid elements ofa story are comments
+        # or we can't. If we can't then we have to fetch eash one in turn
+        # and test it's type, which is going to take a lot logner than
+        # simply assumign they are. I'm defaulting it to assuming they all
+        # are as that's much faster but a command line switch can be used
+        # to force us to check each in turn
+        #
         try :
             if args_.all_kids_are_not_comments :
                 kids = HNews()
@@ -219,6 +294,10 @@ def get_items (items_, args_) :
             else :
                 item['comments'] = len (story['kids'])
 
+        #
+        # if there aren't any kids then we've got zero comments regardless
+        # of wht assumptions we're making
+        #
         except KeyError as e :
             item['comments'] = 0
 
