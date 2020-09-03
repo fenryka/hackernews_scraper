@@ -1,3 +1,6 @@
+# What is this for
+
+It was an interview question for a job interview I didn't get. Apparently it's over complciated (unfair) and not that well tested (fair, but there is a limit to what I'm going to do in an evening to join your company). I wouldn't use anything here :)
 
 # Dependencies
 
